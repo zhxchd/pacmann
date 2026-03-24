@@ -48,6 +48,7 @@ type SimpleBatchPianoPIR struct {
 	SupportBatchNum         uint64
 	localStorage            uint64  // bytes
 	preprocessingTime       float64 // seconds
+	preprocessingCPUTime    float64 // core-seconds
 	commCostPerBatchOnline  uint64  // bytes
 	commCostPerBatchOffline uint64  // bytes
 }
@@ -107,8 +108,9 @@ func (p *SimpleBatchPianoPIR) PrintInfo() {
 	fmt.Printf("-----------------------------\n")
 }
 
-func (p *SimpleBatchPianoPIR) RecordStats(prepTime float64) {
+func (p *SimpleBatchPianoPIR) RecordStats(prepTime float64, prepCPUTime float64) {
 	p.preprocessingTime = prepTime
+	p.preprocessingCPUTime = prepCPUTime
 	p.localStorage = uint64(p.LocalStorageSize())                 // bytes
 	p.commCostPerBatchOnline = uint64(p.CommCostPerBatchOnline()) // bytes
 	p.SupportBatchNum = p.subPIR[0].client.MaxQueryNum / QueryPerPartition
@@ -126,6 +128,7 @@ func (p *SimpleBatchPianoPIR) Preprocessing() {
 	p.FinishedBatchNum = 0
 	p.QueriesMadeInPartition = 0
 	startTime := time.Now()
+	startCPU := cpuNow()
 
 	var wg sync.WaitGroup
 	wg.Add(int(p.config.ThreadNum))
@@ -148,10 +151,12 @@ func (p *SimpleBatchPianoPIR) Preprocessing() {
 	wg.Wait()
 
 	endTime := time.Now()
+	endCPU := cpuNow()
 	prepTime := endTime.Sub(startTime).Seconds()
+	prepCPUTime := (endCPU - startCPU).Seconds()
 	log.Printf("Preprocessing time = %v\n", endTime.Sub(startTime))
 
-	p.RecordStats(prepTime)
+	p.RecordStats(prepTime, prepCPUTime)
 }
 
 func (p *SimpleBatchPianoPIR) DummyPreprocessing() {
@@ -162,7 +167,7 @@ func (p *SimpleBatchPianoPIR) DummyPreprocessing() {
 	}
 
 	log.Printf("Skipping Prep")
-	p.RecordStats(0)
+	p.RecordStats(0, 0)
 }
 
 /// TODO: optimize for multiple batch
@@ -269,6 +274,10 @@ func (p *SimpleBatchPianoPIR) CommCostPerBatchOffline() uint64 {
 
 func (p *SimpleBatchPianoPIR) PreprocessingTime() float64 {
 	return p.preprocessingTime
+}
+
+func (p *SimpleBatchPianoPIR) PreprocessingCPUTime() float64 {
+	return p.preprocessingCPUTime
 }
 
 func (p *SimpleBatchPianoPIR) Config() *SimpleBatchPianoPIRConfig {

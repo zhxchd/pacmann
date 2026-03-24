@@ -201,10 +201,14 @@ func main() {
 	}
 
 	start := time.Now()
+	startCPU := cpuNow()
 	frontend.Preprocess()
 	end := time.Now()
+	endCPU := cpuNow()
 	prepTime := end.Sub(start)
+	prepCPU := endCPU - startCPU
 	log.Println("Preprocessing time: ", prepTime)
+	log.Println("Frontend preprocessing CPU time: ", prepCPU)
 
 	windowSize := queryEngine.PIR.SupportBatchNum / (uint64(*stepN) * uint64(*parallelN))
 	//expectedMaintainenceTime := prepTime.Seconds() / float64(windowSize)
@@ -212,9 +216,11 @@ func main() {
 	// we now make queries
 
 	start = time.Now()
+	startCPU = cpuNow()
 	answers := make([][]int, q)
 
 	maintainenceTime := time.Duration(0)
+	maintainenceCPU := time.Duration(0)
 	for i := 0; i < q; i++ {
 		if i%100 == 0 {
 			log.Printf("Processing query %d\n", i)
@@ -224,18 +230,30 @@ func main() {
 		if queryEngine.PIR.FinishedBatchNum+uint64(*stepN)*uint64(*parallelN)+10 >= queryEngine.PIR.SupportBatchNum {
 			// in this case we need to re-run the preprocessing
 			start := time.Now()
+			startCPU := cpuNow()
 			queryEngine.PIR.Preprocessing()
 			end := time.Now()
+			endCPU := cpuNow()
 			maintainenceTime += end.Sub(start)
+			maintainenceCPU += endCPU - startCPU
 		}
 	}
 	end = time.Now()
+	endCPU = cpuNow()
 	searchTime := end.Sub(start) - maintainenceTime
+	searchCPU := endCPU - startCPU - maintainenceCPU
+	if searchCPU < 0 {
+		searchCPU = 0
+	}
 	avgTime := searchTime.Seconds() / float64(q)
+	avgCPU := searchCPU.Seconds() / float64(q)
 	avgMaintainenceTime := maintainenceTime.Seconds() / float64(q)
+	avgMaintainenceCPU := maintainenceCPU.Seconds() / float64(q)
 	log.Println("Total Online time: ", searchTime)
 	log.Println("Average search time: ", avgTime, " seconds per query")
+	log.Println("Average search CPU time: ", avgCPU, " core-seconds per query")
 	log.Println("Average maintainence time: ", avgMaintainenceTime, " seconds per query")
+	log.Println("Average maintainence CPU time: ", avgMaintainenceCPU, " core-seconds per query")
 
 	// some stats
 	log.Println("Total query number: ", queryEngine.totalQueryNum)
@@ -293,7 +311,9 @@ func main() {
 		config := instance.Config()
 		DBSize := config.DBSize * config.DBEntryByteNum // in bytes
 		PrepTime := instance.PreprocessingTime()
+		PrepCPU := instance.PreprocessingCPUTime()
 		MainTimePerQ := PrepTime / float64(instance.SupportBatchNum) * float64(*stepN) * float64(*parallelN)
+		MainCPUPerQ := PrepCPU / float64(instance.SupportBatchNum) * float64(*stepN) * float64(*parallelN)
 		Storage := instance.LocalStorageSize()
 		OnlineComm := instance.CommCostPerBatchOnline()
 		OfflineComm := instance.CommCostPerBatchOffline()
@@ -312,12 +332,16 @@ func main() {
 		fmt.Fprintf(file, "Preprocessing Cost:\n")
 		fmt.Fprintf(file, "** Storage (MB): %f\n", float64(Storage)/1024.0/1024.0)
 		fmt.Fprintf(file, "** Preparation Time (s): %f\n", PrepTime)
+		fmt.Fprintf(file, "** Preparation Core-Seconds: %f\n", PrepCPU)
 		fmt.Fprintf(file, "** Offline Communication Cost Per Q (KB, amt.): %f\n", float64(OfflineComm)*float64(*stepN)*float64(*parallelN)/1024.0)
 		fmt.Fprintf(file, "** Amortized Maintainence Time Per Q (s): %f\n", MainTimePerQ)
+		fmt.Fprintf(file, "** Amortized Maintainence Core-Seconds Per Q: %f\n", MainCPUPerQ)
 		fmt.Fprintf(file, "\n")
 		fmt.Fprintf(file, "Online Cost:\n")
 		fmt.Fprintf(file, "** Average Computation Time Per Query (s): %f\n", avgTime)
+		fmt.Fprintf(file, "** Average Computation Core-Seconds Per Query: %f\n", avgCPU)
 		fmt.Fprintf(file, "** Average Total Time Per Q (s): %f\n", avgTime+float64(*rtt)/1000.0*float64(*stepN))
+		fmt.Fprintf(file, "** Average Total Core-Seconds Per Q: %f\n", avgCPU)
 		//fmt.Fprintf(file, "** Average Maintainence Time Per Q (s): %f\n", avgMaintainenceTime)
 		fmt.Fprintf(file, "** Online Communication Per Q (KB): %f\n", float64(OnlineComm)*float64(*stepN)*float64(*parallelN)/1024.0)
 		fmt.Fprintf(file, "\n")
