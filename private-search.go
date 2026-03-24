@@ -68,6 +68,25 @@ func genRandomGraph(n int, m int) [][]int {
 	return ret
 }
 
+func maxInt(a int, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func computeRecallAt(gnd [][]int, answers [][]int, cutoff int) (float32, bool) {
+	if cutoff <= 0 || len(gnd) < len(answers) {
+		return 0, false
+	}
+	for i := 0; i < len(answers); i++ {
+		if len(gnd[i]) < cutoff || len(answers[i]) < cutoff {
+			return 0, false
+		}
+	}
+	return graphann.ComputeRecall(gnd, answers, cutoff), true
+}
+
 func main() {
 	numVectors := flag.Int("n", 100000, "number of vectors")
 	dimVectors := flag.Int("d", 128, "dimension of the vectors")
@@ -278,14 +297,37 @@ func main() {
 
 	// finally we evaluate the recall
 	recall := float32(-1.0) // if -1, it means we don't have ground truth
+	recall1 := float32(-1.0)
+	recall10 := float32(-1.0)
+	recall100 := float32(-1.0)
+	hasRecall1 := false
+	hasRecall10 := false
+	hasRecall100 := false
 	if *gndFile != "" {
 		log.Println("Evaluating recall...")
-		gnd, err := graphann.LoadIntMatrixFromFile(*gndFile, q, k)
+		gnd, err := graphann.LoadIntMatrixFromFile(*gndFile, q, maxInt(k, 100))
 		if err != nil {
 			log.Fatalf("Error reading the ground truth file: %v", err)
 		}
-		recall = graphann.ComputeRecall(gnd, answers, k)
-		log.Println("Recall: ", recall)
+		if value, ok := computeRecallAt(gnd, answers, k); ok {
+			recall = value
+			log.Printf("Recall@%d: %f\n", k, recall)
+		}
+		if value, ok := computeRecallAt(gnd, answers, 1); ok {
+			recall1 = value
+			hasRecall1 = true
+			log.Println("Recall@1: ", recall1)
+		}
+		if value, ok := computeRecallAt(gnd, answers, 10); ok {
+			recall10 = value
+			hasRecall10 = true
+			log.Println("Recall@10: ", recall10)
+		}
+		if value, ok := computeRecallAt(gnd, answers, 100); ok {
+			recall100 = value
+			hasRecall100 = true
+			log.Println("Recall@100: ", recall100)
+		}
 	}
 
 	// we finally write the report
@@ -346,7 +388,18 @@ func main() {
 		fmt.Fprintf(file, "** Online Communication Per Q (KB): %f\n", float64(OnlineComm)*float64(*stepN)*float64(*parallelN)/1024.0)
 		fmt.Fprintf(file, "\n")
 		fmt.Fprintf(file, "Quality:\n")
-		fmt.Fprintf(file, "** Recall: %f\n", recall)
+		if recall >= 0 {
+			fmt.Fprintf(file, "** Recall@%d: %f\n", k, recall)
+		}
+		if hasRecall1 {
+			fmt.Fprintf(file, "** Recall@1: %f\n", recall1)
+		}
+		if hasRecall10 {
+			fmt.Fprintf(file, "** Recall@10: %f\n", recall10)
+		}
+		if hasRecall100 {
+			fmt.Fprintf(file, "** Recall@100: %f\n", recall100)
+		}
 		fmt.Fprintf(file, "-----------------------\n")
 
 	}
